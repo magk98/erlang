@@ -11,7 +11,7 @@
 
 %% API
 %%, removeValue/4, getOneValue/4, getStationMean/3, detDailyMean/3, getAirQualityIndex/3
--export([createMonitor/0, addStation/3, addValue/5, removeValue/4, getOneValue/4, getStationMean/3, getDailyMean/3]).
+-export([createMonitor/0, addStation/3, addValue/5, removeValue/4, getOneValue/4, getStationMean/3, getDailyMean/3, getAirQualityIndex/3, tryProgram/0]).
 -record(elements, {pm25=#{}, pm10=#{}, temperature=#{}}).
 -record(station, {stationName, x, y}).
 
@@ -89,10 +89,17 @@ getDailyMean(Element, Time, M1) ->
     "PM2,5" -> ElemValues = [X#elements.pm25 || X <- Values, is_record(X,elements)];
     "temperature" -> ElemValues = [X#elements.temperature || X <- Values, is_record(X,elements)]
   end,
-  ElemDayValues = [filterTime(Time, X) || X <- ElemValues],
+  ElemDayValues = [filterTimeByDay(Time, X) || X <- ElemValues],
   ValuesList = [maps:values(X) || X <- ElemDayValues],
   EValues = lists:foldl(fun(X, List) -> X ++ List end, [], ValuesList),
   mean(EValues, 0, 0).
+
+getAirQualityIndex(StationDetails, Time, M1) ->
+  LimitPM10 = 50,
+  LimitPM25 = 30,
+  PM10Value = getOneValue(StationDetails, Time, "PM10", M1),
+  PM25Value = getOneValue(StationDetails, Time, "PM2,5", M1),
+  max((PM10Value/LimitPM10) * 100, (PM25Value/LimitPM25) * 100).
 
 %all Utility functions used in the program
 mean([], _, _) -> 0;
@@ -117,7 +124,7 @@ existPosition({X, Y}, M1) ->
   M2 == #{}.
 
 getNameByPosition([], {_, _}) -> [];
-getNameByPosition([H = {station, _, X, Y} | T], {X, Y}) -> H;
+getNameByPosition([H = {station, _, X, Y} | _], {X, Y}) -> H;
 getNameByPosition([_ | T], {X, Y}) -> getNameByPosition(T, {X, Y}).
 
 getName([[] | _], _) -> [];
@@ -138,10 +145,22 @@ addElement(OldMap, NewMap, Element) ->
     "temperature" -> OldMap#elements{pm25 = NewMap}
   end.
 
-
-filterTime(Time, M1) ->
-  Fun = fun(X,_) when (X == Time)-> true,
-      fun(_, _) -> false
+filterTimeByDay(Day, M1) ->
+  Fun = fun(X,_) ->
+    case X of
+      {Day, {_, _, _}} -> true;
+      _ -> false
     end
         end,
   maps:filter(Fun, M1).
+
+tryProgram() ->
+  P = pollution:createMonitor(),
+  P1 = pollution:addStation("Aleja Słowackiego", {50.2345, 18.3445}, P),
+  P2 = pollution:addValue({50.2345, 18.3445}, calendar:local_time(), "PM10", 59, P1),
+  P3 = pollution:addValue("Aleja Słowackiego", {{2019,2,15},{12,34,33}}, "PM10", 122, P2),
+  P4 = pollution:addValue("Aleja Słowackiego", calendar:local_time(), "PM10", 13, P3),
+  P5 = pollution:addStation("Manhattan", {50, 18.45}, P4),
+  P6 = pollution:addValue("Manhattan",{{2019,2,15},{12,34,33}} , "PM10", 200, P5),
+  P7 = pollution:addValue("Manhattan",{{2019,2,15},{12,34,33}} , "PM2,5", 213, P6),
+  getAirQualityIndex("Manhattan",{{2019,2,15},{12,34,33}}, P7).
